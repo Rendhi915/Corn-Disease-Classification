@@ -1,0 +1,25 @@
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Flask uploads (ignore isi foldernya, tapi bukan foldernya)
+static/uploads/*
+!static/uploads/.gitkeep
+
+# Environments & Secrets
+.env
+.env.local
+
+# IDEs and Text Editors
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db

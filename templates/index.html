@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Corn Leaf Disease Detector</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #0a0f0a;
+      --bg2:       #111811;
+      --bg3:       #182018;
+      --border:    #2a3a2a;
+      --green:     #4ade80;
+      --green-dim: #22c55e;
+      --green-dark:#16a34a;
+      --text:      #e8f0e8;
+      --text-dim:  #8a9e8a;
+      --amber:     #f59e0b;
+      --red:       #ef4444;
+      --purple:    #8b5cf6;
+      --radius:    16px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ---- NOISE TEXTURE ---- */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ---- GLOW ORBS ---- */
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(120px);
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.15;
+    }
+    .orb-1 { width: 600px; height: 600px; background: #16a34a; top: -200px; left: -200px; }
+    .orb-2 { width: 400px; height: 400px; background: #065f46; bottom: -100px; right: -100px; }
+
+    /* ---- LAYOUT ---- */
+    .wrapper {
+      position: relative;
+      z-index: 1;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    /* ---- HEADER ---- */
+    header {
+      padding: 48px 0 56px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 16px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(74, 222, 128, 0.1);
+      border: 1px solid rgba(74, 222, 128, 0.25);
+      border-radius: 100px;
+      padding: 6px 16px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--green);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .badge-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.8); }
+    }
+
+    h1 {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(2.2rem, 5vw, 3.8rem);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #e8f0e8 0%, #4ade80 60%, #22c55e 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      font-size: 1rem;
+      color: var(--text-dim);
+      max-width: 480px;
+      line-height: 1.6;
+    }
+
+    /* ---- CARDS ---- */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px;
+    }
+
+    /* ---- UPLOAD ZONE ---- */
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 56px 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      position: relative;
+      background: var(--bg3);
+    }
+
+    .upload-zone:hover,
+    .upload-zone.drag-over {
+      border-color: var(--green);
+      background: rgba(74, 222, 128, 0.04);
+    }
+
+    .upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .upload-icon {
+      width: 64px; height: 64px;
+      margin: 0 auto 20px;
+      background: rgba(74, 222, 128, 0.1);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      transition: transform 0.25s ease;
+    }
+
+    .upload-zone:hover .upload-icon {
+      transform: translateY(-4px);
+    }
+
+    .upload-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .upload-hint {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+    }
+
+    /* ---- PREVIEW ---- */
+    #preview-section {
+      display: none;
+      margin-top: 20px;
+    }
+
+    .preview-img-wrap {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 1;
+      background: var(--bg3);
+    }
+
+    .preview-img-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .preview-filename {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-top: 8px;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ---- BUTTON ---- */
+    .btn-analyze {
+      width: 100%;
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 12px;
+      border: none;
+      background: linear-gradient(135deg, var(--green-dark), var(--green-dim));
+      color: #fff;
+      font-family: 'Syne', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      letter-spacing: 0.02em;
+    }
+
+    .btn-analyze:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(74, 222, 128, 0.25);
+    }
+
+    .btn-analyze:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* ---- SPINNER ---- */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---- RESULTS ---- */
+    #result-section {
+      display: none;
+    }
+
+    .result-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .result-icon {
+      width: 56px; height: 56px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      flex-shrink: 0;
+    }
+
+    .result-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+
+    .result-name {
+      font-family: 'Syne', sans-serif;
+      font-size: 1.8rem;
+      font-weight: 800;
+      line-height: 1.1;
+    }
+
+    .result-en {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    .result-desc {
+      font-size: 0.9rem;
+      color: var(--text-dim);
+      line-height: 1.7;
+      padding: 16px;
+      background: var(--bg3);
+      border-radius: 10px;
+      border-left: 3px solid var(--green);
+      margin-bottom: 24px;
+    }
+
+    /* ---- CONFIDENCE BAR ---- */
+    .confidence-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+
+    .confidence-value {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 1rem;
+    }
+
+    .bar-track {
+      height: 8px;
+      background: var(--bg3);
+      border-radius: 100px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 100px;
+      transition: width 1s cubic-bezier(.4,0,.2,1);
+      background: linear-gradient(90deg, var(--green-dark), var(--green));
+    }
+
+    /* ---- CLASS PROBS ---- */
+    .prob-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      margin-bottom: 12px;
+    }
+
+    .prob-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .prob-name {
+      width: 110px;
+      font-size: 0.82rem;
+      flex-shrink: 0;
+    }
+
+    .prob-track {
+      flex: 1;
+      height: 6px;
+      background: var(--bg3);
+      border-radius: 100px;
+      overflow: hidden;
+    }
+
+    .prob-fill {
+      height: 100%;
+      border-radius: 100px;
+      transition: width 1s cubic-bezier(.4,0,.2,1);
+    }
+
+    .prob-pct {
+      width: 48px;
+      text-align: right;
+      font-size: 0.8rem;
+      font-family: 'Syne', sans-serif;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    /* ---- GRAD-CAM IMAGES ---- */
+    .gradcam-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .gradcam-item {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .gradcam-item img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+
+    .gradcam-label {
+      font-size: 0.78rem;
+      text-align: center;
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+
+    /* ---- SECTION TITLE ---- */
+    .section-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ---- LEGEND ---- */
+    .legend {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-top: 8px;
+    }
+
+    .legend-grad {
+      width: 80px; height: 8px;
+      border-radius: 4px;
+      background: linear-gradient(90deg, #00f, #0ff, #0f0, #ff0, #f00);
+    }
+
+    /* ---- RESET ---- */
+    .btn-reset {
+      width: 100%;
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-reset:hover {
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    /* ---- GRID LAYOUT ---- */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    /* ---- ERROR ---- */
+    .error-msg {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-size: 0.88rem;
+      color: #fca5a5;
+      margin-top: 12px;
+      display: none;
+    }
+
+    /* ---- FOOTER ---- */
+    footer {
+      text-align: center;
+      padding-top: 48px;
+      font-size: 0.78rem;
+      color: var(--text-dim);
+    }
+
+    /* ---- INFO KELAS ---- */
+    .class-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 8px;
+    }
+
+    .chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 100px;
+      border: 1px solid var(--border);
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      background: var(--bg2);
+    }
+
+    .chip-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+    }
+
+    @media (max-width: 768px) {
+      .main-grid { grid-template-columns: 1fr; }
+      .gradcam-grid { grid-template-columns: 1fr; }
+      h1 { font-size: 2rem; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+
+<div class="wrapper">
+
+  <!-- HEADER -->
+  <header>
+    <div class="badge">
+      <span class="badge-dot"></span>
+      MobileNetV3-Small + Grad-CAM
+    </div>
+    <h1>Corn Leaf Disease<br>Detector</h1>
+    <p class="subtitle">Deteksi penyakit daun jagung secara otomatis menggunakan deep learning dan visualisasi Grad-CAM heatmap.</p>
+    <div class="class-chips">
+      <div class="chip"><span class="chip-dot" style="background:#10b981"></span>Daun Sehat</div>
+      <div class="chip"><span class="chip-dot" style="background:#f59e0b"></span>Bercak Daun</div>
+      <div class="chip"><span class="chip-dot" style="background:#ef4444"></span>Hawar Daun</div>
+      <div class="chip"><span class="chip-dot" style="background:#8b5cf6"></span>Karat Daun</div>
+    </div>
+  </header>
+
+  <!-- MAIN -->
+  <div class="main-grid">
+
+    <!-- PANEL KIRI: UPLOAD -->
+    <div>
+      <div class="card">
+        <div class="section-title">Upload Gambar</div>
+
+        <!-- Upload Zone -->
+        <div class="upload-zone" id="upload-zone">
+          <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.webp">
+          <div class="upload-icon">🌽</div>
+          <div class="upload-title">Seret & Lepas foto daun</div>
+          <div class="upload-hint">atau klik untuk memilih file<br>PNG, JPG, JPEG, WEBP</div>
+        </div>
+
+        <!-- Preview -->
+        <div id="preview-section">
+          <div style="margin-top:16px">
+            <div class="preview-img-wrap">
+              <img id="preview-img" src="" alt="Preview">
+            </div>
+            <p class="preview-filename" id="preview-filename"></p>
+          </div>
+        </div>
+
+        <!-- Error -->
+        <div class="error-msg" id="error-msg"></div>
+
+        <!-- Analyze Button -->
+        <button class="btn-analyze" id="btn-analyze" disabled>
+          <span class="spinner" id="spinner"></span>
+          <span id="btn-text">🔍 Analisis Gambar</span>
+        </button>
+
+        <!-- Reset -->
+        <button class="btn-reset" id="btn-reset" style="display:none">↩ Upload Gambar Baru</button>
+      </div>
+    </div>
+
+    <!-- PANEL KANAN: HASIL -->
+    <div id="result-section">
+
+      <!-- INVALID CARD -->
+      <div class="card" id="invalid-card" style="display:none; margin-bottom:24px">
+        <div class="result-header">
+          <div class="result-icon" style="background:#ef444422; font-size:26px">⚠️</div>
+          <div>
+            <div class="result-label">Hasil Deteksi</div>
+            <div class="result-name" style="color:#ef4444; font-size:1.4rem">Bukan Daun Jagung</div>
+            <div class="result-en" style="color:#8a9e8a">Not a Corn Leaf</div>
+          </div>
+        </div>
+        <div class="result-desc" id="invalid-reason" style="border-left-color:#ef4444"></div>
+        <div style="margin-top:16px">
+          <div class="gradcam-label" style="text-align:left; margin-bottom:8px; font-size:0.8rem; color:var(--text-dim)">Gambar yang diupload:</div>
+          <img id="img-invalid-original" src="" alt="Original"
+               style="width:100%; max-width:280px; border-radius:12px; border:1px solid var(--border)">
+        </div>
+      </div>
+
+      <!-- VALID RESULT CARD -->
+      <div class="card" id="valid-card" style="display:none; margin-bottom:24px">
+
+        <!-- Result Header -->
+        <div class="result-header">
+          <div class="result-icon" id="result-icon"></div>
+          <div>
+            <div class="result-label">Hasil Deteksi</div>
+            <div class="result-name" id="result-name"></div>
+            <div class="result-en" id="result-en"></div>
+          </div>
+        </div>
+
+        <!-- Deskripsi -->
+        <div class="result-desc" id="result-desc"></div>
+
+        <!-- Confidence -->
+        <div class="confidence-label">
+          <span>Confidence Score</span>
+          <span class="confidence-value" id="confidence-val"></span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill" id="confidence-bar" style="width:0%"></div>
+        </div>
+
+        <!-- Semua Probabilitas -->
+        <div class="prob-title">Distribusi Probabilitas per Kelas</div>
+        <div id="prob-list"></div>
+
+      </div>
+
+      <!-- Grad-CAM (hanya tampil kalau valid) -->
+      <div class="card" id="gradcam-card" style="display:none">
+        <div class="section-title">Visualisasi Grad-CAM</div>
+        <div class="gradcam-grid">
+          <div class="gradcam-item">
+            <img id="img-original" src="" alt="Original">
+            <div class="gradcam-label">🖼️ Original</div>
+          </div>
+          <div class="gradcam-item">
+            <img id="img-heatmap" src="" alt="Heatmap">
+            <div class="gradcam-label">🌡️ Grad-CAM Heatmap</div>
+          </div>
+          <div class="gradcam-item">
+            <img id="img-overlay" src="" alt="Overlay">
+            <div class="gradcam-label">🔍 Overlay</div>
+          </div>
+        </div>
+        <div class="legend">
+          <span>Dingin</span>
+          <div class="legend-grad"></div>
+          <span>Panas (area fokus model)</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    Corn Leaf Disease Detector — MobileNetV3-Small + Grad-CAM &nbsp;·&nbsp; Berjalan lokal di komputermu
+  </footer>
+
+</div>
+
+<script>
+  const fileInput   = document.getElementById('file-input');
+  const uploadZone  = document.getElementById('upload-zone');
+  const previewSec  = document.getElementById('preview-section');
+  const previewImg  = document.getElementById('preview-img');
+  const previewName = document.getElementById('preview-filename');
+  const btnAnalyze  = document.getElementById('btn-analyze');
+  const btnReset    = document.getElementById('btn-reset');
+  const btnText     = document.getElementById('btn-text');
+  const spinner     = document.getElementById('spinner');
+  const errorMsg    = document.getElementById('error-msg');
+  const resultSec   = document.getElementById('result-section');
+
+  let selectedFile = null;
+
+  // ---- DRAG & DROP ----
+  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  });
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+
+  function handleFile(file) {
+    selectedFile = file;
+    const reader = new FileReader();
+    reader.onload = e => {
+      previewImg.src = e.target.result;
+      previewName.textContent = file.name;
+      previewSec.style.display = 'block';
+      btnAnalyze.disabled = false;
+      resultSec.style.display = 'none';
+      errorMsg.style.display = 'none';
+      btnReset.style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // ---- ANALYZE ----
+  btnAnalyze.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    // Loading state
+    btnAnalyze.disabled = true;
+    spinner.style.display = 'block';
+    btnText.textContent = 'Menganalisis...';
+    errorMsg.style.display = 'none';
+    resultSec.style.display = 'none';
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      const res  = await fetch('/predict', { method: 'POST', body: formData });
+      const data = await res.json();
+
+      if (!data.success) throw new Error(data.error);
+
+      // Sembunyikan semua card dulu
+      document.getElementById('invalid-card').style.display = 'none';
+      document.getElementById('valid-card').style.display   = 'none';
+      document.getElementById('gradcam-card').style.display = 'none';
+
+      // ---- BUKAN DAUN JAGUNG ----
+      if (!data.is_corn_leaf) {
+        document.getElementById('invalid-reason').textContent = data.reason;
+        document.getElementById('img-invalid-original').src =
+          'data:image/png;base64,' + data.images.original;
+        document.getElementById('invalid-card').style.display = 'block';
+
+        resultSec.style.display = 'block';
+        btnReset.style.display  = 'block';
+        resultSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+
+      // ---- DAUN JAGUNG VALID ----
+
+      // Icon & nama
+      document.getElementById('result-icon').textContent = data.icon;
+      document.getElementById('result-icon').style.background = data.color + '22';
+      document.getElementById('result-name').textContent = data.prediction;
+      document.getElementById('result-name').style.color = data.color;
+      document.getElementById('result-en').textContent = data.en_name;
+      document.getElementById('result-desc').textContent = data.description;
+
+      // Confidence bar
+      const conf = data.confidence;
+      document.getElementById('confidence-val').textContent = conf.toFixed(1) + '%';
+      document.getElementById('confidence-val').style.color = data.color;
+      document.getElementById('confidence-bar').style.width = '0%';
+      setTimeout(() => {
+        document.getElementById('confidence-bar').style.width = conf + '%';
+        document.getElementById('confidence-bar').style.background =
+          `linear-gradient(90deg, ${data.color}88, ${data.color})`;
+      }, 100);
+
+      // Distribusi probabilitas semua kelas
+      const probList = document.getElementById('prob-list');
+      probList.innerHTML = '';
+      data.class_probs.forEach(cls => {
+        probList.innerHTML += `
+          <div class="prob-item">
+            <span class="prob-name">${cls.name}</span>
+            <div class="prob-track">
+              <div class="prob-fill" style="width:0%;background:${cls.color}" data-w="${cls.prob}"></div>
+            </div>
+            <span class="prob-pct" style="color:${cls.color}">${cls.prob.toFixed(1)}%</span>
+          </div>`;
+      });
+      setTimeout(() => {
+        document.querySelectorAll('.prob-fill').forEach(el => {
+          el.style.width = el.dataset.w + '%';
+        });
+      }, 100);
+
+      // Grad-CAM images
+      document.getElementById('img-original').src = 'data:image/png;base64,' + data.images.original;
+      document.getElementById('img-heatmap').src  = 'data:image/png;base64,' + data.images.heatmap;
+      document.getElementById('img-overlay').src  = 'data:image/png;base64,' + data.images.overlay;
+
+      // Tampilkan card valid + gradcam
+      document.getElementById('valid-card').style.display   = 'block';
+      document.getElementById('gradcam-card').style.display = 'block';
+
+      resultSec.style.display = 'block';
+      btnReset.style.display  = 'block';
+      resultSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    } catch (err) {
+      errorMsg.textContent = '⚠️ ' + (err.message || 'Terjadi kesalahan');
+      errorMsg.style.display = 'block';
+    } finally {
+      btnAnalyze.disabled = false;
+      spinner.style.display = 'none';
+      btnText.textContent = '🔍 Analisis Gambar';
+    }
+  });
+
+  // ---- RESET ----
+  btnReset.addEventListener('click', () => {
+    selectedFile = null;
+    fileInput.value = '';
+    previewSec.style.display = 'none';
+    resultSec.style.display  = 'none';
+    btnReset.style.display   = 'none';
+    btnAnalyze.disabled = true;
+    errorMsg.style.display = 'none';
+    document.getElementById('confidence-bar').style.width = '0%';
+    document.getElementById('invalid-card').style.display = 'none';
+    document.getElementById('valid-card').style.display   = 'none';
+    document.getElementById('gradcam-card').style.display = 'none';
+  });
+</script>
+</body>
+</html>
