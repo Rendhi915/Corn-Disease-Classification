@@ -129,28 +129,24 @@ ENTROPY_THRESHOLD = 1.00  # softmax entropy threshold
 
 def check_green_dominant(img_np):
     """
-    Lapis 1: Cek apakah gambar didominasi warna hijau.
-    Daun jagung pasti punya proporsi hijau yang signifikan.
-    Return: (passed, green_ratio)
+    Lapis 1: Cek apakah gambar didominasi warna daun.
+    Return: (passed, metrics)
     """
     img_uint8 = (img_np * 255).astype(np.uint8)
     hsv = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2HSV)
 
-    # Range hijau normal (daun sehat)
-    mask_green = cv2.inRange(hsv, (35, 30, 30), (90, 255, 255))
-    # Range hijau kekuningan / kecokelatan (daun sakit)
-    mask_yellow = cv2.inRange(hsv, (20, 30, 30), (35, 255, 255))
-    # Range cokelat / karat
-    mask_brown = cv2.inRange(hsv, (5, 40, 30), (20, 255, 200))
+    # Range warna daun (lebih toleran untuk daun sakit/kekuningan)
+    mask_green = cv2.inRange(hsv, (30, 25, 25), (95, 255, 255))
+    mask_yellow = cv2.inRange(hsv, (15, 20, 20), (40, 255, 255))
+    mask_brown = cv2.inRange(hsv, (5, 30, 20), (25, 255, 220))
 
     total_pixels = img_np.shape[0] * img_np.shape[1]
-    green_ratio  = (mask_green > 0).sum() / total_pixels
+    green_ratio = (mask_green > 0).sum() / total_pixels
     yellow_ratio = (mask_yellow > 0).sum() / total_pixels
-    brown_ratio  = (mask_brown > 0).sum() / total_pixels
+    brown_ratio = (mask_brown > 0).sum() / total_pixels
 
-    leaf_color_ratio = green_ratio + yellow_ratio * 0.5 + brown_ratio * 0.3
+    leaf_color_ratio = green_ratio + yellow_ratio * 0.7 + brown_ratio * 0.5
 
-    # Statistik warna daun (hindari warna hijau solid seperti tembok)
     leaf_mask = (mask_green > 0) | (mask_yellow > 0) | (mask_brown > 0)
     if leaf_mask.any():
         hue_vals = hsv[:, :, 0][leaf_mask]
@@ -161,48 +157,56 @@ def check_green_dominant(img_np):
         hue_std = 0.0
         sat_mean = 0.0
 
-    # Minimal 25% piksel warna daun + saturasi cukup
-    # Jika leaf_color_ratio sangat tinggi (> 50%), kita lebih toleran terhadap keseragaman warna
-    passed = False
-    if leaf_color_ratio >= 0.50:
-        passed = (sat_mean >= 40)  # Daun mendominasi foto, warna boleh seragam
+    dense_leaf = leaf_color_ratio >= 0.50
+    min_ratio = 0.18
+    sat_threshold = 30 if dense_leaf else 35
+    hue_threshold = 2.0
+
+    if dense_leaf:
+        passed = sat_mean >= sat_threshold
     else:
-        passed = (leaf_color_ratio >= 0.25) and (sat_mean >= 50) and (hue_std >= 1.5)
+        passed = (
+            (leaf_color_ratio >= min_ratio)
+            and (sat_mean >= sat_threshold)
+            and (hue_std >= hue_threshold)
+        )
 
     return (
         passed,
-        round(leaf_color_ratio * 100, 1),
-        round(sat_mean, 1),
-        round(hue_std, 1)
+        {
+            'leaf_ratio': round(leaf_color_ratio * 100, 1),
+            'sat_mean': round(sat_mean, 1),
+            'hue_std': round(hue_std, 1),
+            'min_ratio': round(min_ratio * 100, 1),
+            'sat_threshold': sat_threshold,
+            'hue_threshold': hue_threshold,
+            'dense_leaf': dense_leaf
+        }
     )
 
 
 def check_leaf_texture(img_np):
     """
     Lapis 2: Cek apakah gambar punya tekstur daun.
-    Daun jagung punya garis-garis tulang daun sejajar yang khas.
-    Return: (passed, edge_score)
+    Return: (passed, edge_score, variance, line_count)
     """
     img_uint8 = (img_np * 255).astype(np.uint8)
     gray = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2GRAY)
 
-    # Deteksi tepi (tulang daun)
-    edges = cv2.Canny(gray, 30, 100)
+    edges = cv2.Canny(gray, 20, 80)
     edge_ratio = (edges > 0).sum() / edges.size
 
-    # Cek arah garis menggunakan Hough Lines (daun jagung = garis sejajar)
-    lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=30,
-                             minLineLength=20, maxLineGap=10)
-    has_lines = lines is not None and len(lines) > 8
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=25,
+                             minLineLength=15, maxLineGap=12)
+    line_count = 0 if lines is None else len(lines)
+    has_lines = line_count >= 5
 
-    # Cek variance warna (daun punya variasi warna, bukan warna solid)
     gray_float = gray.astype(float)
-    variance = np.var(gray_float)
+    variance = float(np.var(gray_float))
 
-    # Tekstur daun: edge cukup + ada garis + variance tidak terlalu rendah/tinggi
-    passed = (0.05 <= edge_ratio <= 0.38) and has_lines and (variance > 320)
+    passed = (edge_ratio >= 0.03) and (variance > 180) and (has_lines or edge_ratio > 0.08)
     edge_score = round(edge_ratio * 100, 1)
-    return passed, edge_score
+    return passed, edge_score, round(variance, 1), line_count
 
 
 def check_aspect_ratio(img):
@@ -225,38 +229,72 @@ def validate_corn_leaf(img, img_np):
         return False, "Proporsi gambar tidak sesuai untuk foto daun jagung.", {}
 
     # Lapis 1: Warna hijau
-    green_passed, green_ratio, sat_mean, hue_std = check_green_dominant(img_np)
+    green_passed, green_metrics = check_green_dominant(img_np)
+    leaf_ratio = green_metrics['leaf_ratio']
+    sat_mean = green_metrics['sat_mean']
+    hue_std = green_metrics['hue_std']
+
     if not green_passed:
+        min_ratio = green_metrics['min_ratio']
+        sat_threshold = green_metrics['sat_threshold']
+        hue_threshold = green_metrics['hue_threshold']
+        dense_leaf = green_metrics['dense_leaf']
+
+        reasons = []
+        if leaf_ratio < min_ratio:
+            reasons.append("proporsi warna daun rendah")
+        if sat_mean < sat_threshold:
+            reasons.append("saturasi warna daun rendah")
+        if (not dense_leaf) and (hue_std < hue_threshold):
+            reasons.append("warna terlalu seragam")
+
+        reason_text = " / ".join(reasons) if reasons else "validasi warna daun gagal"
         return False, (
             f"Gambar tidak terdeteksi sebagai daun jagung. "
-            f"Proporsi warna daun terlalu rendah atau warna terlalu seragam "
-            f"(leaf {green_ratio}%, sat {sat_mean}, hue std {hue_std}). "
+            f"{reason_text} "
+            f"(leaf {leaf_ratio}%, sat {sat_mean}, hue std {hue_std}). "
             f"Pastikan foto menampilkan daun jagung dengan jelas."
         ), {
-            'green_ratio': green_ratio,
+            'green_ratio': leaf_ratio,
             'sat_mean': sat_mean,
-            'hue_std': hue_std
+            'hue_std': hue_std,
+            'min_ratio': min_ratio,
+            'sat_threshold': sat_threshold,
+            'hue_threshold': hue_threshold
         }
 
     # Lapis 2: Tekstur daun
-    texture_passed, edge_score = check_leaf_texture(img_np)
+    texture_passed, edge_score, variance, line_count = check_leaf_texture(img_np)
     if not texture_passed:
         return False, (
             f"Tekstur gambar tidak sesuai dengan daun jagung. "
             f"Pastikan foto fokus pada permukaan daun jagung."
         ), {
-            'green_ratio': green_ratio,
+            'green_ratio': leaf_ratio,
             'sat_mean': sat_mean,
             'hue_std': hue_std,
-            'edge_score': edge_score
+            'edge_score': edge_score,
+            'variance': variance,
+            'line_count': line_count
         }
 
     return True, "OK", {
-        'green_ratio': green_ratio,
+        'green_ratio': leaf_ratio,
         'sat_mean': sat_mean,
         'hue_std': hue_std,
-        'edge_score': edge_score
+        'edge_score': edge_score,
+        'variance': variance,
+        'line_count': line_count
     }
+
+
+def prepare_validation_image(img):
+    """
+    Downscale untuk validasi agar stabil di berbagai resolusi.
+    """
+    img_val = img.copy()
+    img_val.thumbnail((512, 512))
+    return np.array(img_val) / 255.0
 
 
 # ============================================================
@@ -295,11 +333,12 @@ def predict():
         img = Image.open(file.stream).convert('RGB')
         img_resized = img.resize((224, 224))
         img_np = np.array(img_resized) / 255.0
+        img_val_np = prepare_validation_image(img)
 
         # ============================================================
         # VALIDASI 3 LAPIS SEBELUM PREDIKSI
         # ============================================================
-        is_valid, reason, val_details = validate_corn_leaf(img, img_np)
+        is_valid, reason, val_details = validate_corn_leaf(img, img_val_np)
 
         if not is_valid:
             original_b64 = img_to_base64(img_np)
